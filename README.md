@@ -1,6 +1,6 @@
 # Profluent-E1
 
-This repository contains the code for the [Profluent E1](https://storage.googleapis.com/e1-paper-a26c3c79/profluent-e1.pdf) family of models - our best in class single sequence and retrieval augmented protein representation models. They are designed to be drop-in replacement for ESM family of models. See Section on [licenses](#licenses) for the license details. 
+This repository contains the code for the [Profluent E1](https://www.biorxiv.org/content/10.1101/2025.11.12.688125v1) family of models - our best in class single sequence and retrieval augmented protein representation models. They are designed to be drop-in replacement for ESM family of models. See Section on [licenses](#licenses) for the license details. 
 
 ## Available Models
 
