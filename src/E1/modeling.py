@@ -15,7 +15,7 @@ from .config import E1Config
 from .dynamic_cache import DynamicCache
 from .model.attention import Attention, AttentionArgs
 from .model.ffn import FFN
-from .model.flex_attention import FlexAttentionArgs, create_block_causal_mask_optimized
+from .model.flex_attention import FlexAttentionArgs, create_block_causal_mask_optimized, is_flex_attention_available
 
 logger = logging.get_logger(__name__)
 
@@ -302,9 +302,9 @@ class E1Model(E1PreTrainedModel):
         # (batch_size, query_length, keyval_length)
         past_key_values_length = past_key_values.get_seq_length() if past_key_values is not None else 0
 
-        # Create block mask for flex attention
+        # Create block mask for flex attention（仅在 flex attention 可用且未使用 KV cache 时）
         attention_args: AttentionArgs | None = None
-        if past_key_values_length == 0:
+        if past_key_values_length == 0 and is_flex_attention_available():
             block_mask = create_block_causal_mask_optimized(sequence_ids)
             flex_attention_args = FlexAttentionArgs(block_mask=block_mask)
             attention_args = AttentionArgs(flex_attention_args=flex_attention_args)

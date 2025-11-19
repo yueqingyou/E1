@@ -8,7 +8,7 @@ from transformers.utils import logging
 from ..config import E1Config
 from ..dynamic_cache import DynamicCache
 from .flash_attention import flash_attention_func, is_flash_attention_available
-from .flex_attention import FlexAttentionArgs, flex_attention_func
+from .flex_attention import FlexAttentionArgs, flex_attention_func, is_flex_attention_available
 from .varlen_flex_attention import varlen_flex_attention_func
 
 logger = logging.get_logger(__name__)
@@ -220,7 +220,8 @@ class Attention(nn.Module):
         # for global attention layers instead of flex attention. This is because once the cache is filled,
         # the last sequence attends to everything in the cache, so we can make things faster by using a
         # bidirectional flash attention instead of block-causal flex attention.
-        if self.layer_type == AttentionLayerType.WITHIN_SEQ or is_cache_prefilled:
+        # 如果当前环境不支持 flex attention，则统一使用 FLASH（内部再根据可用性选择 flash-attn / varlen-flex / 朴素实现）。
+        if self.layer_type == AttentionLayerType.WITHIN_SEQ or is_cache_prefilled or not is_flex_attention_available():
             attention_type = AttentionMethod.FLASH
         else:
             attention_type = AttentionMethod.FLEX
@@ -305,13 +306,66 @@ class Attention(nn.Module):
                 k_sequence_ids=k_sequence_ids,
                 causal=False,
             )
-        else:
+        elif is_flex_attention_available():
+            # 无 flash-attn，但有 flex attention 时，退化为变长 flex 实现
             attn_output = varlen_flex_attention_func(
                 query_states, key_states, val_states, q_sequence_ids=q_sequence_ids, k_sequence_ids=k_sequence_ids
+            )
+        else:
+            # 两者都不可用时，使用朴素的缩放点积注意力实现（仅用于兼容性，性能较低）
+            attn_output = self._naive_attn(
+                query_states=query_states,
+                key_states=key_states,
+                val_states=val_states,
+                sequence_ids=sequence_ids,
             )
 
         attn_output = attn_output.reshape(bsz, q_len, self.hidden_size).contiguous()
         return attn_output, None
+
+    def _naive_attn(
+        self,
+        query_states: torch.Tensor,
+        key_states: torch.Tensor,
+        val_states: torch.Tensor,
+        sequence_ids: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        在 flash-attn 和 flex attention 都不可用时的朴素注意力实现。
+
+        仅在兼容性场景下使用（如 torch 2.4.x + 无 flex_attention 模块）。
+        """
+        import math
+
+        bsz, q_len, _, _ = query_states.shape
+        kv_len = key_states.shape[1]
+
+        # (bsz, num_heads, q_len, head_dim)
+        q = query_states.permute(0, 2, 1, 3)
+        k = key_states.permute(0, 2, 1, 3)
+        v = val_states.permute(0, 2, 1, 3)
+
+        # 将 KV 头重复到与注意力头数一致
+        if self.num_kv_heads != self.num_heads:
+            k = repeat_kv(k, self.num_key_value_groups)
+            v = repeat_kv(v, self.num_key_value_groups)
+
+        # 缩放点积注意力
+        attn_scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.head_dim)  # (bsz, n_heads, q_len, kv_len)
+
+        # 对 padding token 进行 mask（sequence_ids == -1）
+        if sequence_ids is not None and kv_len == sequence_ids.shape[1]:
+            key_padding_mask = sequence_ids.eq(-1)  # (bsz, kv_len)
+            if key_padding_mask.any():
+                attn_scores = attn_scores.masked_fill(
+                    key_padding_mask[:, None, None, :],
+                    float("-inf"),
+                )
+
+        attn_weights = torch.softmax(attn_scores, dim=-1)
+        attn_output = torch.matmul(attn_weights, v)  # (bsz, n_heads, q_len, head_dim)
+        attn_output = attn_output.permute(0, 2, 1, 3)  # (bsz, q_len, n_heads, head_dim)
+        return attn_output
 
     def _flex_attn(
         self,
