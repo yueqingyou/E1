@@ -3,7 +3,7 @@ authors = [{name = "Profluent Team"}]
 maintainers = [{name = "Sarthak Jain", email = "sjain@profluent.bio"}]
 name = "E1"
 requires-python = ">=3.10"
-version = "1.0.0"
+version = "1.0.0+dcu.dtk25.04.2"
 
 dependencies = [
     "transformers",
