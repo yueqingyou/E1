@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 
+# 与 flex_attention.py 保持一致：这里直接使用原生算子，不在库导入阶段做 torch.compile。
 try:
     import torch
     from torch.nn.attention.flex_attention import (
@@ -12,9 +13,6 @@ try:
     )
 
     from .flash_attention_utils import _unpad_input, pad_input
-
-    if torch.cuda.is_available():
-        flex_attention = torch.compile(flex_attention, dynamic=True)
 except ImportError:
     flex_attention = None
 

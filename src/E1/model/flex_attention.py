@@ -3,12 +3,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, TypedDict
 
-try:
-    import torch
-    from torch.nn.attention.flex_attention import BlockMask, create_block_mask, flex_attention
+import torch
 
-    if torch.cuda.is_available():
-        flex_attention = torch.compile(flex_attention, dynamic=True)
+# flex_attention 原生算子已经会按运行时后端选择实现。
+# 不要在库导入阶段包一层 torch.compile，否则会把后端 lowering 能力错误地变成硬依赖。
+try:
+    from torch.nn.attention.flex_attention import BlockMask, create_block_mask, flex_attention
 except ImportError:
     # 在当前环境（如 torch 2.4.x）中可能不存在 torch.nn.attention.flex_attention。
     # 为了兼容，我们显式禁用 flex attention，并提供占位符类型 / 函数。
